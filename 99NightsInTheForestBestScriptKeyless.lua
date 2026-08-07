@@ -2,14 +2,14 @@
     Project: 99 Nights in the Forest - Mobile/Tablet Optimized (Delta Executor)
     Target Devices: iPhone, iPad, Samsung / Android Phones & Tablets ONLY
     Features: Touch-Friendly UI, Vertical Rectangle Box, Hide/Minimize, Close, 
-              Auto Farm, Bring Items, Teleports, Godmode, Fly, Noclip, Speed/Jump.
+              Auto Farm, Bring Items, Teleports, Godmode, Fly, Speed/Jump.
+    Note: Keyless & without invisible systems.
 ]]--
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
@@ -93,7 +93,7 @@ UIList.SortOrder = Enum.SortOrder.LayoutIndex
 UIList.Padding = UDim.new(0, 6)
 UIList.Parent = ControlContainer
 
--- Hide / Minimize Button (-) [Larger touch target for mobile/tablets]
+-- Hide / Minimize Button (-)
 local HideBtn = Instance.new("TextButton")
 HideBtn.Size = UDim2.new(0, 36, 0, 36)
 HideBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
@@ -108,7 +108,7 @@ local HideCorner = Instance.new("UICorner")
 HideCorner.CornerRadius = UDim.new(0, 8)
 HideCorner.Parent = HideBtn
 
--- Close Button (X) [Larger touch target for mobile/tablets]
+-- Close Button (X)
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Size = UDim2.new(0, 36, 0, 36)
 CloseBtn.BackgroundColor3 = Color3.fromRGB(210, 50, 50)
@@ -123,8 +123,8 @@ local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 8)
 CloseCorner.Parent = CloseBtn
 
--- Smooth Touch & Mouse Dragging for Mobile Screens
-local dragging, dragInput, dragStart, startPos
+-- Smooth Touch & Mouse Dragging
+local dragging, dragStart, startPos
 Header.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
@@ -169,7 +169,7 @@ CloseBtn.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
--- Sidebar Tab Container (Vertical Left Navigation for Mobile)
+-- Sidebar Tab Container
 local TabContainer = Instance.new("ScrollingFrame")
 TabContainer.Size = UDim2.new(0, 120, 1, -58)
 TabContainer.Position = UDim2.new(0, 0, 0, 54)
@@ -195,12 +195,11 @@ local settings = {
     autoEatFood = false,
     autoRevive = false,
     godMode = false,
-    noclip = false,
     flyMode = false,
     fullbright = false,
 }
 
--- Page Creator Utility (Tailored for mobile proportions)
+-- Page Creator Utility
 local function createPage(name)
     local page = Instance.new("ScrollingFrame")
     page.Name = name .. "Page"
@@ -222,7 +221,7 @@ end
 
 local function addTabButton(name, index, targetPage)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -10, 0, 42) -- Enlarged touch target for fingers/tablets
+    btn.Size = UDim2.new(1, -10, 0, 42)
     btn.Position = UDim2.new(0, 5, 0, 0)
     btn.BackgroundColor3 = Color3.fromRGB(25, 25, 36)
     btn.Text = name
@@ -261,7 +260,7 @@ addTabButton("Player/God", 4, PlayerPage)
 addTabButton("Visuals", 5, VisualPage)
 addTabButton("Misc Hub", 6, MiscPage)
 
--- Mobile-friendly UI Element Helpers (Larger buttons for touch interaction)
+-- UI Element Helpers
 local function createToggle(parent, text, callback)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, -12, 0, 42)
@@ -389,8 +388,6 @@ createToggle(PlayerPage, "Godmode / Immortal", function(v)
     end
 end)
 
-createToggle(PlayerPage, "Noclip Mode", function(v) settings.noclip = v end)
-
 createToggle(PlayerPage, "Fly Mode (Mobile)", function(v)
     settings.flyMode = v
     local char = LocalPlayer.Character
@@ -418,14 +415,18 @@ createToggle(PlayerPage, "Fly Mode (Mobile)", function(v)
 end)
 
 createToggle(PlayerPage, "Much Speed Mode", function(v)
-    if v then LocalPlayer.Character.Humanoid.WalkSpeed = 60 else LocalPlayer.Character.Humanoid.WalkSpeed = 16 end
+    if v and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then 
+        LocalPlayer.Character.Humanoid.WalkSpeed = 60 
+    elseif LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then 
+        LocalPlayer.Character.Humanoid.WalkSpeed = 16 
+    end
 end)
 
 createToggle(PlayerPage, "Much Jump Mode", function(v)
-    if v then 
+    if v and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then 
         LocalPlayer.Character.Humanoid.UseJumpPower = true
         LocalPlayer.Character.Humanoid.JumpPower = 120 
-    else 
+    elseif LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then 
         LocalPlayer.Character.Humanoid.JumpPower = 50 
     end
 end)
@@ -460,20 +461,8 @@ createButton(MiscPage, "Rejoin Server", function()
     game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
 end)
 
--- Noclip loop execution
-RunService.Stepped:Connect(function()
-    if settings.noclip and LocalPlayer.Character then
-        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
-        end
-    end
-end)
-
 -- Default to Farm page
 FarmPage.Visible = true
 
 notify("Mobile Expert Hub", "Loaded successfully! Enjoy playing on mobile/tablet.", 4)
 
-# FingerStudiosScripts
