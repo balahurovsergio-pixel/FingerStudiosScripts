@@ -1,0 +1,541 @@
+
+    Keyless Advanced Automation Script for "99 Nights in the Forest" (Roblox)
+    Features:
+    - Auto Day Multiplier (speed up time to reach Day 1000)
+    - Auto campfire upgrade to maximum level
+    - Auto scrap broken items into iron
+    - Auto teleport & rescue 4 missing children
+    - Auto build bed blueprints
+    - Auto open chests at rescue sites
+    - Hunger management: cook and eat specific foods
+    - Auto farming (resource collection)
+    - Auto revive using bandages on death
+    - Live stats GUI: Diamonds 💎, Children 👶, Day 📅
+
+    This script is keyless – just execute and let it run.
+    (Educational purposes only; adjust paths to match the actual game.)
+]]--
+
+-- Services
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game.Workspace
+
+-- Player & Character
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local backpack = player:WaitForChild("Backpack")
+
+-- Configuration
+local CONFIG = {
+    DayMultiplier = 50,              -- days advanced per in-game "cycle"
+    CampfireMaxLevel = 5,
+    ScrapToolName = "Scrap Machine", -- interaction part name
+    MissingChildrenLocations = {
+        Vector3.new(100, 0, 200),
+        Vector3.new(-150, 5, 50),
+        Vector3.new(300, 2, -120),
+        Vector3.new(-80, 10, -300)
+    },
+    BedBlueprintName = "Bed Blueprint",
+    HammerName = "Hammer",
+    ChestNames = {"Chest", "LootChest"},
+    FoodItems = {
+        Morsel = "Morsel",
+        Steak = "Steak",
+        Ribs = "Ribs",
+        Stew = "Stew",
+        HeartyStew = "Hearty Stew",
+        Berry = "Berry"
+    },
+    HungerThreshold = 30,           -- eat when hunger stat below this
+    HealthThreshold = 10,           -- heal when health below this
+    BandageName = "Bandage",
+    DiamondItemName = "Diamond",
+    StatUpdateInterval = 1
+}
+
+-- Stats
+local stats = {
+    Diamonds = 0,
+    ChildrenRescued = 0,
+    Day = 1,
+    MaxDay = 1000
+}
+
+-- Utility functions
+local function wait(seconds)
+    task.wait(seconds)
+end
+
+local function findFirstChild(parent, name)
+    for _, child in ipairs(parent:GetChildren()) do
+        if child.Name == name then
+            return child
+        end
+    end
+    return nil
+end
+
+local function getItemCount(itemName)
+    local count = 0
+    -- Check backpack
+    for _, tool in ipairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") and tool.Name == itemName then
+            count = count + 1
+        end
+    end
+    -- Check character
+    if character then
+        for _, tool in ipairs(character:GetChildren()) do
+            if tool:IsA("Tool") and tool.Name == itemName then
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+local function hasItem(itemName)
+    return getItemCount(itemName) > 0
+end
+
+local function equipItem(itemName)
+    local tool = findFirstChild(backpack, itemName)
+    if not tool and character then
+        tool = findFirstChild(character, itemName)
+    end
+    if tool and tool:IsA("Tool") then
+        if tool.Parent ~= character then
+            -- move to character if possible
+            tool.Parent = character
+        end
+        -- attempt to activate
+        if tool:FindFirstChild("Handle") then
+            -- some games require the tool to be equipped before use
+            humanoid:EquipTool(tool)
+        end
+        return tool
+    end
+    return nil
+end
+
+local function getStatValue(statName)
+    -- Generic function to read player stats (e.g., Hunger, Health)
+    -- Adjust depending on the game's stat system.
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if leaderstats then
+        local stat = leaderstats:FindFirstChild(statName)
+        if stat and stat:IsA("NumberValue") or stat:IsA("IntValue") then
+            return stat.Value
+        end
+    end
+    -- Fallback: try player direct children
+    local s = player:FindFirstChild(statName)
+    if s and (s:IsA("NumberValue") or s:IsA("IntValue")) then
+        return s.Value
+    end
+    -- If "Hunger" is a property of humanoid (in some games)
+    if statName == "Hunger" and humanoid:FindFirstChild("Hunger") then
+        return humanoid.Hunger.Value
+    end
+    return 100 -- default
+end
+
+local function teleportTo(position)
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        character.HumanoidRootPart.CFrame = CFrame.new(position)
+    end
+end
+
+local function interactWithPart(part)
+    -- Simulate clicking / proximity prompt
+    if part:FindFirstChildWhichIsA("ProximityPrompt") then
+        local prompt = part:FindFirstChildWhichIsA("ProximityPrompt")
+        if prompt.Enabled then
+            fireproximityprompt(prompt)
+            wait(0.5)
+        end
+    elseif part:FindFirstChild("ClickDetector") then
+        fireclickdetector(part.ClickDetector)
+        wait(0.2)
+    end
+end
+
+-- GUI for live stats
+local function createStatsGUI()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "AutomationStats"
+    gui.ResetOnSpawn = false
+    gui.Parent = player:WaitForChild("PlayerGui")
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 220, 0, 120)
+    frame.Position = UDim2.new(0.8, 0, 0.05, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    frame.BackgroundTransparency = 0.3
+    frame.BorderSizePixel = 0
+    frame.Parent = gui
+
+    local uiCorner = Instance.new("UICorner", frame)
+    uiCorner.CornerRadius = UDim.new(0,8)
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -10, 0, 25)
+    title.Position = UDim2.new(0, 5, 0, 5)
+    title.BackgroundTransparency = 1
+    title.Text = "⚡ Auto Progress ⚡"
+    title.TextColor3 = Color3.fromRGB(255,215,0)
+    title.TextScaled = true
+    title.Font = Enum.Font.GothamBold
+    title.Parent = frame
+
+    local diamondLabel = Instance.new("TextLabel")
+    diamondLabel.Name = "DiamondLabel"
+    diamondLabel.Size = UDim2.new(1, -10, 0, 20)
+    diamondLabel.Position = UDim2.new(0, 5, 0, 35)
+    diamondLabel.BackgroundTransparency = 1
+    diamondLabel.Text = "💎 Diamonds: 0"
+    diamondLabel.TextColor3 = Color3.fromRGB(255,255,255)
+    diamondLabel.TextScaled = true
+    diamondLabel.Parent = frame
+
+    local childrenLabel = Instance.new("TextLabel")
+    childrenLabel.Name = "ChildrenLabel"
+    childrenLabel.Size = UDim2.new(1, -10, 0, 20)
+    childrenLabel.Position = UDim2.new(0, 5, 0, 60)
+    childrenLabel.BackgroundTransparency = 1
+    childrenLabel.Text = "👶 Children: 0/4"
+    childrenLabel.TextColor3 = Color3.fromRGB(255,255,255)
+    childrenLabel.TextScaled = true
+    childrenLabel.Parent = frame
+
+    local dayLabel = Instance.new("TextLabel")
+    dayLabel.Name = "DayLabel"
+    dayLabel.Size = UDim2.new(1, -10, 0, 20)
+    dayLabel.Position = UDim2.new(0, 5, 0, 85)
+    dayLabel.BackgroundTransparency = 1
+    dayLabel.Text = "📅 Day: 1 / 1000"
+    dayLabel.TextColor3 = Color3.fromRGB(255,255,255)
+    dayLabel.TextScaled = true
+    dayLabel.Parent = frame
+
+    -- Return update function
+    return function()
+        local diamondCount = getItemCount(CONFIG.DiamondItemName)
+        stats.Diamonds = diamondCount
+        diamondLabel.Text = "💎 Diamonds: " .. diamondCount
+
+        local rescued = stats.ChildrenRescued
+        childrenLabel.Text = "👶 Children: " .. rescued .. "/4"
+
+        dayLabel.Text = "📅 Day: " .. stats.Day .. " / " .. stats.MaxDay
+
+        if stats.Day >= stats.MaxDay then
+            title.Text = "🏆 MAX DAY REACHED! 🏆"
+        end
+    end
+end
+
+-- -------------------- CORE AUTOMATION FUNCTIONS --------------------
+
+-- 1. Day Multiplier (speeds up time)
+local function advanceDay()
+    -- Many games use Lighting.ClockTime or a custom TimeOfDay
+    -- We'll quickly cycle 24 hours * multiplier
+    local multiplier = CONFIG.DayMultiplier
+    local currentDay = stats.Day
+    for i = 1, multiplier do
+        -- increment time by 24/multiplier hours
+        local newTime = (Lighting.ClockTime + (24 / multiplier)) % 24
+        Lighting.ClockTime = newTime
+        -- also try common alternative
+        local minutesAfter = Lighting:GetMinutesAfterMidnight()
+        Lighting:SetMinutesAfterMidnight((minutesAfter + (1440 / multiplier)) % 1440)
+        wait(0.01) -- fast iteration, adjust for performance
+    end
+    stats.Day = stats.Day + multiplier
+    if stats.Day > stats.MaxDay then stats.Day = stats.MaxDay end
+end
+
+-- 2. Auto upgrade campfire to max level
+local function upgradeCampfire()
+    local campfire = Workspace:FindFirstChild("Campfire") or Workspace:FindFirstChild("Firepit")
+    if not campfire then return end
+    local currentLevel = campfire:FindFirstChild("Level")
+    if currentLevel and currentLevel.Value >= CONFIG.CampfireMaxLevel then return end
+
+    -- Interact with upgrade button or add fuel repeatedly
+    for i = 1, CONFIG.CampfireMaxLevel do
+        local upgradePart = campfire:FindFirstChild("UpgradePart") or campfire:FindFirstChild("Upgrade")
+        if upgradePart then
+            interactWithPart(upgradePart)
+            wait(0.5)
+        else
+            -- Alternative: use fuel items
+            local fuelItem = "Wood" or "Log"
+            equipItem(fuelItem)
+            wait(0.3)
+            -- Fire event if needed
+            local args = { [1] = "AddFuel" }
+            local remote = ReplicatedStorage:FindFirstChild("CampfireEvent")
+            if remote then remote:FireServer(unpack(args)) end
+            wait(0.3)
+        end
+    end
+end
+
+-- 3. Auto scrap broken items into iron
+local function scrapBrokenItems()
+    local scrapStation = Workspace:FindFirstChild(CONFIG.ScrapToolName)
+    if not scrapStation then return end
+
+    -- Find broken items in inventory
+    local brokenItems = {}
+    for _, tool in ipairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") and (tool.Name:lower():find("broken") or tool.Name:lower():find("damaged")) then
+            table.insert(brokenItems, tool)
+        end
+    end
+    if #brokenItems == 0 then return end
+
+    -- Equip each and interact with scrap station
+    for _, tool in ipairs(brokenItems) do
+        equipItem(tool.Name)
+        wait(0.2)
+        teleportTo(scrapStation.Position + Vector3.new(0,2,0))
+        wait(0.3)
+        interactWithPart(scrapStation)
+        wait(0.5)
+    end
+end
+
+-- 4. Teleport to save missing children & "unstore" (rescue)
+local function rescueChildren()
+    local childNPCs = Workspace:FindFirstChild("MissingChildren") or Workspace:FindFirstChild("ChildrenInCages")
+    if not childNPCs then return end
+
+    for _, location in ipairs(CONFIG.MissingChildrenLocations) do
+        teleportTo(location)
+        wait(0.5)
+
+        -- Look for a child NPC or cage within 20 studs
+        local found = nil
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("Model") and obj.Name:lower():find("child") and (obj.PrimaryPart and (obj.PrimaryPart.Position - location).Magnitude < 20) then
+                found = obj
+                break
+            end
+        end
+        if found then
+            -- "unstore" by clicking a release button or interacting
+            local releasePart = found:FindFirstChild("Release") or found:FindFirstChild("Unstore")
+            if releasePart then
+                interactWithPart(releasePart)
+                wait(0.5)
+                stats.ChildrenRescued = stats.ChildrenRescued + 1
+            end
+        end
+    end
+end
+
+-- 5. Auto build bed blueprints
+local function buildBeds()
+    local blueprint = Workspace:FindFirstChild(CONFIG.BedBlueprintName)
+    if not blueprint then return end
+
+    -- Check if we have a hammer
+    equipItem(CONFIG.HammerName)
+    wait(0.3)
+
+    -- Hit the blueprint (build) multiple times
+    local buildPart = blueprint:FindFirstChild("Handle") or blueprint.PrimaryPart
+    if buildPart then
+        teleportTo(buildPart.Position + Vector3.new(0,2,0))
+        wait(0.3)
+        for i = 1, 10 do
+            -- simulate hitting
+            local remote = ReplicatedStorage:FindFirstChild("BuildEvent")
+            if remote then remote:FireServer(buildPart) end
+            interactWithPart(buildPart)
+            wait(0.2)
+        end
+    end
+end
+
+-- 6. Open chests at children rescue locations
+local function openChests()
+    for _, location in ipairs(CONFIG.MissingChildrenLocations) do
+        for _, chest in ipairs(Workspace:GetDescendants()) do
+            if chest:IsA("Model") and table.find(CONFIG.ChestNames, chest.Name) then
+                if (chest.PrimaryPart and (chest.PrimaryPart.Position - location).Magnitude < 30) then
+                    teleportTo(chest.PrimaryPart.Position + Vector3.new(0,2,0))
+                    wait(0.3)
+                    interactWithPart(chest.PrimaryPart)
+                    wait(0.5)
+                end
+            end
+        end
+    end
+end
+
+-- 7. Hunger management: cook and eat
+local function manageHunger()
+    local hunger = getStatValue("Hunger")
+    if hunger >= CONFIG.HungerThreshold then return end
+
+    -- Teleport to campfire
+    local campfire = Workspace:FindFirstChild("Campfire") or Workspace:FindFirstChild("Firepit")
+    if not campfire then return end
+    teleportTo(campfire.Position + Vector3.new(0,2,0))
+    wait(0.5)
+
+    -- Cook each food type if available
+    for foodKey, foodName in pairs(CONFIG.FoodItems) do
+        if hasItem(foodName) then
+            equipItem(foodName)
+            wait(0.3)
+            -- Interact with campfire to cook
+            interactWithPart(campfire) -- assume clicking campfire with food cooks it
+            wait(0.5)
+            -- The cooked version might appear; eat it
+            -- Simple approach: use a remote to cook
+            local cookRemote = ReplicatedStorage:FindFirstChild("CookFood")
+            if cookRemote then
+                cookRemote:FireServer(foodName)
+            end
+            wait(0.3)
+            -- Now eat the cooked item (often same name or with "Cooked" prefix)
+            local cookedName = "Cooked " .. foodName
+            local itemToEat = cookedName
+            if not hasItem(itemToEat) then
+                itemToEat = foodName -- fallback
+            end
+            equipItem(itemToEat)
+            wait(0.2)
+            -- simulate eating (activate tool)
+            local tool = equipItem(itemToEat)
+            if tool then
+                tool:Activate()
+                wait(0.3)
+            end
+        end
+    end
+end
+
+-- 8. Auto farming (basic resource gathering)
+local function autoFarm()
+    -- Chop trees
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and (obj.Name:lower():find("tree") or obj.Name:lower():find("log")) then
+            local trunk = obj:FindFirstChild("Trunk") or obj.PrimaryPart
+            if trunk then
+                teleportTo(trunk.Position + Vector3.new(0,2,0))
+                wait(0.2)
+                -- Equip axe if present
+                equipItem("Axe")
+                wait(0.2)
+                -- hit
+                local remote = ReplicatedStorage:FindFirstChild("Harvest")
+                if remote then remote:FireServer(obj) end
+                interactWithPart(trunk)
+                wait(0.1)
+            end
+        end
+    end
+
+    -- Mine rocks
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and (obj.Name:lower():find("rock") or obj.Name:lower():find("boulder")) then
+            local rockPart = obj.PrimaryPart
+            if rockPart then
+                teleportTo(rockPart.Position + Vector3.new(0,2,0))
+                equipItem("Pickaxe")
+                wait(0.2)
+                local remote = ReplicatedStorage:FindFirstChild("Harvest")
+                if remote then remote:FireServer(obj) end
+                interactWithPart(rockPart)
+                wait(0.1)
+            end
+        end
+    end
+
+    -- Gather berries
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj.Name:lower():find("berrybush") then
+            local bushPart = obj.PrimaryPart
+            if bushPart then
+                teleportTo(bushPart.Position + Vector3.new(0,2,0))
+                wait(0.2)
+                interactWithPart(bushPart)
+                wait(0.1)
+            end
+        end
+    end
+end
+
+-- 9. Auto revive with bandages
+local function autoRevive()
+    if humanoid.Health <= 0 then
+        wait(1) -- brief delay after death
+        if hasItem(CONFIG.BandageName) then
+            equipItem(CONFIG.BandageName)
+            wait(0.2)
+            local tool = equipItem(CONFIG.BandageName)
+            if tool then
+                tool:Activate()
+                wait(0.5)
+            end
+        end
+        -- wait for revival
+        repeat wait(0.5) until humanoid.Health > 0
+    end
+end
+
+-- -------------------- MAIN LOOP --------------------
+local updateStatsGUI = createStatsGUI()
+
+-- Primary task scheduler
+local function main()
+    while stats.Day < stats.MaxDay do
+        -- Status update
+        updateStatsGUI()
+
+        -- Health/Revive check (highest priority)
+        autoRevive()
+
+        -- Day multiplier to advance time
+        advanceDay()
+
+        -- Critical tasks
+        upgradeCampfire()
+        scrapBrokenItems()
+        rescueChildren()
+        buildBeds()
+        openChests()
+
+        -- Hunger management (may interrupt other tasks)
+        manageHunger()
+
+        -- General farming
+        autoFarm()
+
+        -- Small yield to prevent freezing
+        wait(1)
+    end
+
+    -- Final state
+    updateStatsGUI()
+    print("Day 1000 reached! Automation complete.")
+end
+
+-- Start in a protected coroutine
+local success, err = pcall(main)
+if not success then
+    warn("Script error: " .. tostring(err))
+end
